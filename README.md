@@ -12,7 +12,7 @@ backend/
 ├── empresas/        # Auth, onboarding de locadora e gestão de equipe (UC01)
 ├── ativos/          # Catálogo de classes de ativos homologadas para IA (UC03)
 ├── regras/          # Políticas operacionais por perfil Funcionário vs. Terceirizado (UC02)
-├── dispositivos/    # Governança e homologação de aparelhos móveis (UC05 Web)
+├── dispositivos/    # Governança e homologação de aparelhos móveis ou web (UC05 Web)
 ├── inventarios/     # Dashboard analítico e auditoria de contagens (UC04)
 ├── api_mobile/      # Ponte DRF isolada (API REST para o App Mobile — UC05 API)
 └── templates/       # Templates HTML (Django Template Language + Bootstrap 5)
