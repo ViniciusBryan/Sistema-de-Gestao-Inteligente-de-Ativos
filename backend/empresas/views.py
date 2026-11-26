@@ -72,7 +72,6 @@ def cadastrar_empresa(request):
             empresa = Empresa.objects.create(
                 razao_social=data['razao_social'],
                 subdominio=subdominio,
-                schema_name=subdominio.replace('-', '_'),
                 status_ativo=True,
             )
             Usuario.objects.create_user(

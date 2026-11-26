@@ -9,7 +9,7 @@ from django.utils import timezone
 from ativos.models import ClasseAtivo
 from dispositivos.models import DispositivoMovel
 from empresas.models import Empresa, TipoOperador, Usuario
-from inventarios.models import Inventario
+from inventarios.models import Inventario, ItemInventario
 from regras.models import RegraOperacionalMobile
 
 
@@ -21,7 +21,7 @@ def _basic_auth(username, password):
 class ApiMobileTests(TestCase):
     def setUp(self):
         self.client = Client()
-        self.empresa = Empresa.objects.create(razao_social="Empresa API", schema_name="emp_api", subdominio="empapi")
+        self.empresa = Empresa.objects.create(razao_social="Empresa API", subdominio="empapi")
         self.gestor = Usuario.objects.create_user(
             username="gestor.api",
             email="gestor@api.com",
@@ -136,3 +136,133 @@ class ApiMobileTests(TestCase):
         )
         r_bloq = post_sync(10, 10)
         self.assertEqual(r_bloq.status_code, 403)
+
+    def test_regras_api_autenticada_e_dispositivo(self):
+        r_anon = self.client.get(reverse('api_regras'))
+        self.assertEqual(r_anon.status_code, 403)
+
+        auth = _basic_auth('funcionario1', 'senha123')
+        r_ok = self.client.get(
+            reverse('api_regras'),
+            HTTP_AUTHORIZATION=auth,
+            HTTP_X_DEVICE_UUID='MOB-REGRA-1',
+            HTTP_X_DEVICE_MODEL='Pixel 8',
+        )
+        self.assertEqual(r_ok.status_code, 200)
+        payload = r_ok.json()
+        self.assertEqual(payload['tipo_operador_alvo'], 'FUNCIONARIO')
+        self.assertEqual(payload['tolerancia_erro_ia_pct'], 10.0)
+        self.assertEqual(payload['limite_edicao_manual_pct'], 20.0)
+        self.assertTrue(payload['exige_justificativa'])
+        self.assertTrue(payload['bloquear_excesso_edicao'])
+        self.assertEqual(payload['versao'], 1)
+        self.assertIn('servidor_hora_local', payload)
+        self.assertTrue(payload['dentro_horario_permitido'])
+
+        DispositivoMovel.objects.filter(uuid_dispositivo='MOB-REGRA-1').update(
+            status_autorizacao=DispositivoMovel.StatusAutorizacao.BLOQUEADO
+        )
+        r_bloq = self.client.get(
+            reverse('api_regras'),
+            HTTP_AUTHORIZATION=auth,
+            HTTP_X_DEVICE_UUID='MOB-REGRA-1',
+        )
+        self.assertEqual(r_bloq.status_code, 403)
+
+        r_login = self.client.post(
+            reverse('api_login'),
+            data=json.dumps({'username': 'funcionario1', 'password': 'senha123'}),
+            content_type='application/json',
+            HTTP_X_DEVICE_UUID='MOB-REGRA-1',
+        )
+        self.assertEqual(r_login.status_code, 403)
+
+        DispositivoMovel.objects.filter(uuid_dispositivo='MOB-REGRA-1').update(
+            status_autorizacao=DispositivoMovel.StatusAutorizacao.AUTORIZADO
+        )
+        r_login_ok = self.client.post(
+            reverse('api_login'),
+            data=json.dumps({'username': 'funcionario1', 'password': 'senha123'}),
+            content_type='application/json',
+            HTTP_X_DEVICE_UUID='MOB-REGRA-1',
+        )
+        self.assertEqual(r_login_ok.status_code, 200)
+        login_json = r_login_ok.json()
+        self.assertIn('regra_operacional', login_json)
+        self.assertEqual(login_json['regra_operacional']['tipo_operador_alvo'], 'FUNCIONARIO')
+        self.assertTrue(login_json['dentro_horario_permitido'])
+
+    def test_sincronizar_alias_table_joint_para_mesa_bistro(self):
+        mesa = ClasseAtivo.objects.create(
+            empresa=self.empresa,
+            nome_classe="Mesa Bistrô",
+            codigo_yolo="mesa_bistro",
+            categoria="Mobiliário",
+        )
+        auth = _basic_auth('funcionario1', 'senha123')
+        agora = timezone.now().isoformat()
+        inv_id = str(uuid.uuid4())
+
+        r_ok = self.client.post(
+            reverse('api_sincronizar'),
+            data=json.dumps({
+                'id': inv_id,
+                'data_hora_inicio': agora,
+                'data_hora_fim': agora,
+                'lat_long': '-23.55,-46.63',
+                'itens': [
+                    {
+                        'classe_codigo': 'table_joint',
+                        'qtd_detectada_ia': 6,
+                        'qtd_confirmada_humano': 6,
+                        'justificativa': '',
+                    }
+                ],
+            }),
+            content_type='application/json',
+            HTTP_AUTHORIZATION=auth,
+            HTTP_X_DEVICE_UUID='MOB-ALIAS-1',
+        )
+        self.assertEqual(r_ok.status_code, 201)
+        self.assertEqual(ItemInventario.objects.get(inventario_id=inv_id).classe_ativo, mesa)
+
+        r_desconhecida = self.client.post(
+            reverse('api_sincronizar'),
+            data=json.dumps({
+                'id': str(uuid.uuid4()),
+                'data_hora_inicio': agora,
+                'data_hora_fim': agora,
+                'lat_long': '-23.55,-46.63',
+                'itens': [
+                    {
+                        'classe_codigo': 'desconhecida',
+                        'qtd_detectada_ia': 2,
+                        'qtd_confirmada_humano': 2,
+                        'justificativa': '',
+                    }
+                ],
+            }),
+            content_type='application/json',
+            HTTP_AUTHORIZATION=auth,
+            HTTP_X_DEVICE_UUID='MOB-ALIAS-1',
+        )
+        self.assertEqual(r_desconhecida.status_code, 422)
+
+    def test_regras_api_fallback_padrao_quando_sem_regra_no_banco(self):
+        RegraOperacionalMobile.objects.filter(empresa=self.empresa).delete()
+        auth = _basic_auth('funcionario1', 'senha123')
+
+        r_fallback = self.client.get(
+            reverse('api_regras'),
+            HTTP_AUTHORIZATION=auth,
+            HTTP_X_DEVICE_UUID='MOB-FALLBACK-1',
+        )
+        self.assertEqual(r_fallback.status_code, 200)
+        payload = r_fallback.json()
+        self.assertEqual(payload['tipo_operador_alvo'], 'FUNCIONARIO')
+        self.assertEqual(payload['tolerancia_erro_ia_pct'], 10.0)
+        self.assertEqual(payload['limite_edicao_manual_pct'], 20.0)
+        self.assertTrue(payload['exige_justificativa'])
+        self.assertTrue(payload['bloquear_excesso_edicao'])
+        self.assertEqual(payload['versao'], 1)
+        self.assertTrue(payload['dentro_horario_permitido'])

@@ -33,7 +33,12 @@ python -m venv venv
 pip install -r requirements.txt
 ```
 
-*(No Linux/macOS/WSL: `source venv/bin/activate` e `python3 -m pip install -r requirements.txt`.)*
+No Linux/macOS/WSL: 
+
+python -m venv venv
+source venv/bin/activate
+python3 -m pip install -r requirements.txt
+
 
 2. Aplique as migrações, popule os dados de demonstração e suba o servidor:
 

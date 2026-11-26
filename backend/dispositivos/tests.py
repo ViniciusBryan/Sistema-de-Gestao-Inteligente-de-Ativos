@@ -9,7 +9,7 @@ from .models import DispositivoMovel
 
 class DispositivosModuleTests(TestCase):
     def setUp(self):
-        self.empresa = Empresa.objects.create(razao_social="Locadora D", schema_name="loc_d", subdominio="locd")
+        self.empresa = Empresa.objects.create(razao_social="Locadora D", subdominio="locd")
         self.gestor = Usuario.objects.create_user(
             username="gestor.d",
             email="d@locd.com",

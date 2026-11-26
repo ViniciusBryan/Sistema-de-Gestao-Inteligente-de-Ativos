@@ -16,10 +16,9 @@ class Command(BaseCommand):
         self.stdout.write(self.style.NOTICE("Iniciando carga inicial do SIGA Web v1.0..."))
 
         empresa, _ = Empresa.objects.get_or_create(
-            schema_name="locadora_prime",
+            subdominio="prime",
             defaults={
                 "razao_social": "Locadora Prime Eventos Ltda",
-                "subdominio": "prime",
                 "status_ativo": True,
             },
         )

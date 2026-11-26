@@ -8,7 +8,7 @@ from .models import RegraOperacionalMobile
 
 class RegrasModuleTests(TestCase):
     def setUp(self):
-        self.empresa = Empresa.objects.create(razao_social="Locadora R", schema_name="loc_r", subdominio="locr")
+        self.empresa = Empresa.objects.create(razao_social="Locadora R", subdominio="locr")
         self.gestor = Usuario.objects.create_user(
             username="gestor.r",
             email="r@locr.com",
@@ -43,3 +43,22 @@ class RegrasModuleTests(TestCase):
         self.assertEqual(r_terc.tolerancia_erro_ia_pct, Decimal('8.00'))
         self.assertEqual(r_func.versao, 2)
         self.assertEqual(r_terc.versao, 2)
+
+    def test_configurar_regras_rejeita_percentual_negativo(self):
+        resp_post = self.client.post(
+            reverse('regras_config'),
+            {
+                'func-tolerancia_erro_ia_pct': '-5',
+                'func-limite_edicao_manual_pct': '20',
+                'func-exige_justificativa': 'on',
+                'terc-tolerancia_erro_ia_pct': '10',
+                'terc-limite_edicao_manual_pct': '5',
+                'terc-exige_justificativa': 'on',
+            },
+        )
+        self.assertEqual(resp_post.status_code, 200)
+        self.assertFormError(
+            resp_post.context['form_func'],
+            'tolerancia_erro_ia_pct',
+            'Informe um percentual maior ou igual a zero.',
+        )

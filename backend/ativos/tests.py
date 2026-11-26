@@ -7,8 +7,8 @@ from .models import ClasseAtivo
 
 class AtivosModuleTests(TestCase):
     def setUp(self):
-        self.empresa = Empresa.objects.create(razao_social="Locadora A", schema_name="loc_a", subdominio="loca")
-        self.outra_empresa = Empresa.objects.create(razao_social="Locadora B", schema_name="loc_b", subdominio="locb")
+        self.empresa = Empresa.objects.create(razao_social="Locadora A", subdominio="loca")
+        self.outra_empresa = Empresa.objects.create(razao_social="Locadora B", subdominio="locb")
         self.gestor = Usuario.objects.create_user(
             username="gestor.a",
             email="a@loca.com",

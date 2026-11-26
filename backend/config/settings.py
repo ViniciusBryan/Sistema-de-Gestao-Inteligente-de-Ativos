@@ -8,7 +8,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 
 SECRET_KEY = 'django-insecure-siga-web-admin-v1-academico'
 DEBUG = True
-ALLOWED_HOSTS = ['127.0.0.1', 'localhost', 'testserver']
+ALLOWED_HOSTS = ['*'] if DEBUG else ['127.0.0.1', 'localhost', 'testserver']
 
 INSTALLED_APPS = [
     'django.contrib.admin',

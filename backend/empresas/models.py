@@ -8,11 +8,6 @@ class Empresa(models.Model):
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     razao_social = models.CharField(max_length=255)
-    schema_name = models.CharField(
-        max_length=63,
-        unique=True,
-        help_text="Identificador único para schema/tenant",
-    )
     subdominio = models.CharField(max_length=63, unique=True)
     status_ativo = models.BooleanField(default=True)
     criado_em = models.DateTimeField(auto_now_add=True)

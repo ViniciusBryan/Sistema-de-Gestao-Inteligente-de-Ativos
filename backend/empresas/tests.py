@@ -12,7 +12,6 @@ class EmpresasModuleTests(TestCase):
     def setUp(self):
         self.empresa = Empresa.objects.create(
             razao_social="Locadora Alfa Ltda",
-            schema_name="alfa",
             subdominio="alfa",
         )
         self.gestor = Usuario.objects.create_user(

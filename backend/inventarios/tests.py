@@ -11,7 +11,7 @@ from .models import Inventario, ItemInventario, LogAuditoria
 
 class InventariosModuleTests(TestCase):
     def setUp(self):
-        self.empresa = Empresa.objects.create(razao_social="Locadora I", schema_name="loc_i", subdominio="loci")
+        self.empresa = Empresa.objects.create(razao_social="Locadora I", subdominio="loci")
         self.gestor = Usuario.objects.create_user(
             username="gestor.i",
             email="i@loci.com",

@@ -1,4 +1,3 @@
-from decimal import Decimal
 import uuid
 from django.contrib.auth import authenticate
 from django.db import transaction
@@ -11,7 +10,32 @@ from rest_framework.views import APIView
 from dispositivos.models import DispositivoMovel
 from dispositivos.utils import registrar_e_verificar_dispositivo
 from inventarios.models import Inventario, ItemInventario
-from .serializers import InventarioSyncSerializer
+from regras.models import RegraOperacionalMobile
+from .serializers import InventarioSyncSerializer, serializar_regra_mobile
+
+
+def _resposta_dispositivo_nao_autorizado(dispositivo, incluir_detalhes=False):
+    """Retorna Response 403 quando o dispositivo estiver bloqueado ou pendente."""
+    if not dispositivo:
+        return None
+
+    status_disp = dispositivo.status_autorizacao
+    if status_disp == DispositivoMovel.StatusAutorizacao.BLOQUEADO:
+        mensagem = 'Dispositivo bloqueado pela administração.'
+    elif status_disp == DispositivoMovel.StatusAutorizacao.PENDENTE:
+        mensagem = (
+            'Novo dispositivo registrado como PENDENTE. Aguarde a homologação do gestor.'
+            if incluir_detalhes
+            else 'Novo dispositivo pendente de homologação pela administração.'
+        )
+    else:
+        return None
+
+    payload = {'error': mensagem}
+    if incluir_detalhes:
+        payload['status_autorizacao'] = status_disp
+        payload['uuid_dispositivo'] = dispositivo.uuid_dispositivo
+    return Response(payload, status=status.HTTP_403_FORBIDDEN)
 
 
 def _verificar_dispositivo_header(request):
@@ -25,20 +49,7 @@ def _verificar_dispositivo_header(request):
         device_uuid,
         request.headers.get('X-Device-Model', 'Desconhecido'),
     )
-    if not dispositivo:
-        return None, None
-
-    if dispositivo.status_autorizacao == DispositivoMovel.StatusAutorizacao.BLOQUEADO:
-        return dispositivo, Response(
-            {'error': 'Dispositivo bloqueado pela administração.'},
-            status=status.HTTP_403_FORBIDDEN,
-        )
-    if dispositivo.status_autorizacao == DispositivoMovel.StatusAutorizacao.PENDENTE:
-        return dispositivo, Response(
-            {'error': 'Novo dispositivo pendente de homologação pela administração.'},
-            status=status.HTTP_403_FORBIDDEN,
-        )
-    return dispositivo, None
+    return dispositivo, _resposta_dispositivo_nao_autorizado(dispositivo)
 
 
 class LoginMobileAPIView(APIView):
@@ -63,24 +74,12 @@ class LoginMobileAPIView(APIView):
         device_model = request.headers.get('X-Device-Model') or request.data.get('device_model', 'Smartphone Mobile')
         dispositivo, _ = registrar_e_verificar_dispositivo(usuario, device_uuid, device_model)
 
-        if dispositivo and dispositivo.status_autorizacao == DispositivoMovel.StatusAutorizacao.BLOQUEADO:
-            return Response(
-                {
-                    'error': 'Dispositivo bloqueado pela administração.',
-                    'status_autorizacao': dispositivo.status_autorizacao,
-                    'uuid_dispositivo': dispositivo.uuid_dispositivo,
-                },
-                status=status.HTTP_403_FORBIDDEN,
-            )
-        if dispositivo and dispositivo.status_autorizacao == DispositivoMovel.StatusAutorizacao.PENDENTE:
-            return Response(
-                {
-                    'error': 'Novo dispositivo registrado como PENDENTE. Aguarde a homologação do gestor.',
-                    'status_autorizacao': dispositivo.status_autorizacao,
-                    'uuid_dispositivo': dispositivo.uuid_dispositivo,
-                },
-                status=status.HTTP_403_FORBIDDEN,
-            )
+        erro_disp = _resposta_dispositivo_nao_autorizado(dispositivo, incluir_detalhes=True)
+        if erro_disp:
+            return erro_disp
+
+        regra = RegraOperacionalMobile.para_usuario(usuario)
+        hora_atual = timezone.localtime().time()
 
         return Response(
             {
@@ -94,6 +93,8 @@ class LoginMobileAPIView(APIView):
                     'data_registro': dispositivo.data_registro.isoformat() if dispositivo else None,
                     'ultima_atuacao': dispositivo.ultima_atuacao.isoformat() if dispositivo else None,
                 },
+                'regra_operacional': serializar_regra_mobile(usuario, regra),
+                'dentro_horario_permitido': regra.horario_permitido(hora_atual) if regra else True,
                 'message': 'Login realizado e dispositivo verificado com sucesso.',
             },
             status=status.HTTP_200_OK,
@@ -116,14 +117,23 @@ class SincronizacaoAPIView(APIView):
 
         serializer = InventarioSyncSerializer(data=request.data, context={'request': request})
         if not serializer.is_valid():
+            regra_atual = RegraOperacionalMobile.para_usuario(request.user)
             return Response(
-                {'error': 'Violação de regra operacional', 'detalhes': serializer.errors},
+                {
+                    'error': 'Violação de regra operacional',
+                    'detalhes': serializer.errors,
+                    'regra_operacional': serializar_regra_mobile(request.user, regra_atual),
+                },
                 status=status.HTTP_422_UNPROCESSABLE_ENTITY,
             )
 
         validated = serializer.validated_data
         regra = validated['_regra_aplicada']
-        tolerancia = regra.tolerancia_erro_ia_pct if regra else Decimal('10.0')
+        tolerancia = (
+            regra.tolerancia_erro_ia_pct
+            if regra
+            else RegraOperacionalMobile.DEFAULT_TOLERANCIA_ERRO_IA_PCT
+        )
 
         with transaction.atomic():
             inventario, _ = Inventario.objects.update_or_create(
@@ -166,6 +176,7 @@ class SincronizacaoAPIView(APIView):
                 'id': str(inventario.id),
                 'status': inventario.status_auditoria,
                 'timestamp': timezone.now().isoformat(),
+                'regra_operacional': serializar_regra_mobile(request.user, regra),
                 'message': 'Inventário sincronizado com sucesso.',
             },
             status=status.HTTP_201_CREATED,
@@ -188,3 +199,21 @@ class CatalogoAtivosAPIView(APIView):
 
         ativos = empresa.classes_ativos.all().values('id', 'nome_classe', 'codigo_yolo', 'categoria')
         return Response(list(ativos), status=status.HTTP_200_OK)
+
+
+class RegraOperacionalMobileAPIView(APIView):
+    """Retorna a regra operacional vigente do operador para sincronização do app móvel."""
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        _, erro_disp = _verificar_dispositivo_header(request)
+        if erro_disp:
+            return erro_disp
+
+        regra = RegraOperacionalMobile.para_usuario(request.user)
+        hora_atual = timezone.localtime().time()
+        payload = serializar_regra_mobile(request.user, regra, fallback_padrao=True)
+        payload['servidor_hora_local'] = hora_atual.strftime('%H:%M')
+        payload['dentro_horario_permitido'] = regra.horario_permitido(hora_atual) if regra else True
+        return Response(payload, status=status.HTTP_200_OK)

@@ -12,7 +12,7 @@ class CadastroEmpresaForm(forms.Form):
     subdominio = forms.SlugField(
         max_length=63,
         label="Identificador (subdomínio)",
-        help_text="Apenas letras minúsculas, números e hífen. Ex: prime-eventos",
+        help_text="Apenas letras minúsculas, números e hífen",
     )
     first_name = forms.CharField(max_length=150, label="Nome")
     last_name = forms.CharField(max_length=150, label="Sobrenome")
@@ -28,8 +28,7 @@ class CadastroEmpresaForm(forms.Form):
 
     def clean_subdominio(self):
         sub = self.cleaned_data['subdominio'].lower()
-        schema = sub.replace('-', '_')
-        if Empresa.objects.filter(subdominio=sub).exists() or Empresa.objects.filter(schema_name=schema).exists():
+        if Empresa.objects.filter(subdominio=sub).exists():
             raise ValidationError("Este identificador já está em uso.")
         return sub
 
@@ -67,7 +66,7 @@ class UsuarioCreateForm(forms.Form):
     last_name = forms.CharField(max_length=150, label="Sobrenome")
     username = forms.CharField(max_length=150, label="Nome de Usuário")
     email = forms.EmailField(label="E-mail")
-    password = forms.CharField(widget=forms.PasswordInput, label="Senha Inicial")
+    password = forms.CharField(widget=forms.PasswordInput, label="Senha para login")
     tipo_operador = forms.ChoiceField(
         choices=[
             (TipoOperador.FUNCIONARIO, 'Funcionário'),

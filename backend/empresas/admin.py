@@ -4,7 +4,7 @@ from .models import Empresa, Funcionario, Terceirizado, Usuario
 
 
 class EmpresaAdmin(admin.ModelAdmin):
-    list_display = ('razao_social', 'subdominio', 'schema_name', 'status_ativo', 'criado_em')
+    list_display = ('razao_social', 'subdominio', 'status_ativo', 'criado_em')
 
 
 class UsuarioAdmin(admin.ModelAdmin):
