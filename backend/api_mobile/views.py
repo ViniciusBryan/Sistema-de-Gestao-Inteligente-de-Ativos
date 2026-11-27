@@ -152,17 +152,21 @@ class SincronizacaoAPIView(APIView):
 
             houve_divergencia = False
             for item in validated['itens']:
+                foto_upload = item.get('foto_arquivo') or item.get('foto')
+                item_defaults = {
+                    'classe_ativo': item['classe_ativo_instancia'],
+                    'qtd_detectada_ia': item.get('qtd_detectada_ia', 0),
+                    'qtd_confirmada_humano': item.get('qtd_confirmada_humano', 0),
+                    'justificativa': item.get('justificativa', ''),
+                    'detections_json': item.get('detections_json', []),
+                }
+                if foto_upload:
+                    item_defaults['foto'] = foto_upload
+
                 item_obj, _ = ItemInventario.objects.update_or_create(
                     id=item.get('id') or uuid.uuid4(),
                     inventario=inventario,
-                    defaults={
-                        'classe_ativo': item['classe_ativo_instancia'],
-                        'qtd_detectada_ia': item.get('qtd_detectada_ia', 0),
-                        'qtd_confirmada_humano': item.get('qtd_confirmada_humano', 0),
-                        'justificativa': item.get('justificativa', ''),
-                        'detections_json': item.get('detections_json', []),
-                        'foto': item.get('foto'),
-                    },
+                    defaults=item_defaults,
                 )
                 if item_obj.divergencia_percentual > tolerancia:
                     houve_divergencia = True

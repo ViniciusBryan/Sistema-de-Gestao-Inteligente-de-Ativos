@@ -92,7 +92,7 @@
                 {% endif %}
               </td>
               <td>
-                {% if u.status_ativo %}
+                {% if u.status_ativo and u.is_active %}
                   <span class="badge bg-success">Ativo</span>
                 {% else %}
                   <span class="badge bg-danger">Inativo</span>
@@ -102,15 +102,22 @@
                 {% if u != user %}
                   <form method="post" action="{% url 'usuario_status' u.pk %}" class="d-inline">
                     {% csrf_token %}
-                    {% if u.status_ativo %}
-                      <button type="submit" class="btn btn-sm btn-outline-danger" title="Desativar usuário">
+                    {% if u.status_ativo and u.is_active %}
+                      <button type="submit" class="btn btn-sm btn-outline-warning" title="Desativar permissão de login">
                         <i class="bi bi-person-x"></i> Desativar
                       </button>
                     {% else %}
-                      <button type="submit" class="btn btn-sm btn-outline-success" title="Ativar usuário">
+                      <button type="submit" class="btn btn-sm btn-outline-success" title="Ativar permissão de login">
                         <i class="bi bi-person-check"></i> Ativar
                       </button>
                     {% endif %}
+                  </form>
+                  <form method="post" action="{% url 'usuario_deletar' u.pk %}" class="d-inline"
+                        onsubmit="return confirm('Tem certeza que deseja excluir o usuário {{ u.username }}?');">
+                    {% csrf_token %}
+                    <button type="submit" class="btn btn-sm btn-outline-danger ms-1" title="Excluir usuário">
+                      <i class="bi bi-trash"></i> Excluir
+                    </button>
                   </form>
                 {% endif %}
               </td>

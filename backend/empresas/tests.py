@@ -4,6 +4,7 @@ from django.urls import reverse
 
 from ativos.models import ClasseAtivo
 from dispositivos.models import DispositivoMovel
+from inventarios.models import Inventario
 from regras.models import RegraOperacionalMobile
 from .models import Empresa, Funcionario, Terceirizado, TipoOperador, Usuario
 
@@ -133,3 +134,43 @@ class EmpresasModuleTests(TestCase):
         self.assertRedirects(resp_toggle, reverse('usuario_list'))
         terc.usuario.refresh_from_db()
         self.assertFalse(terc.usuario.status_ativo)
+        self.assertFalse(terc.usuario.is_active)
+
+        # Usuário desativado perde permissão de login (web e Basic Auth)
+        c_terc = Client()
+        resp_login_inativo = c_terc.post(
+            reverse('login'),
+            {'username': 'pedro.terc', 'password': 'password123', 'device_uuid': 'WEB-TERC'},
+        )
+        self.assertEqual(resp_login_inativo.status_code, 200)
+
+        # Reativar restaura status_ativo e is_active
+        client.post(reverse('usuario_status', kwargs={'pk': terc.usuario.pk}))
+        terc.usuario.refresh_from_db()
+        self.assertTrue(terc.usuario.status_ativo)
+        self.assertTrue(terc.usuario.is_active)
+
+        # Não permite auto-desativação nem auto-exclusão
+        client.post(reverse('usuario_status', kwargs={'pk': self.gestor.pk}))
+        client.post(reverse('usuario_deletar', kwargs={'pk': self.gestor.pk}))
+        self.gestor.refresh_from_db()
+        self.assertTrue(self.gestor.status_ativo)
+        self.assertTrue(self.gestor.is_active)
+
+        # Excluir usuário sem vínculos protegidos remove do banco
+        resp_del = client.post(reverse('usuario_deletar', kwargs={'pk': terc.usuario.pk}))
+        self.assertRedirects(resp_del, reverse('usuario_list'))
+        self.assertFalse(Usuario.objects.filter(pk=terc.usuario.pk).exists())
+
+        # Usuário com inventário vinculado (ProtectedError) não é excluído e exibe erro amigável
+        from django.utils import timezone
+        agora = timezone.now()
+        Inventario.objects.create(
+            empresa=self.empresa,
+            usuario=self.operador,
+            data_hora_inicio=agora,
+            data_hora_fim=agora,
+        )
+        resp_prot = client.post(reverse('usuario_deletar', kwargs={'pk': self.operador.pk}), follow=True)
+        self.assertTrue(Usuario.objects.filter(pk=self.operador.pk).exists())
+        self.assertContains(resp_prot, 'Desative o usuário para bloquear o acesso')

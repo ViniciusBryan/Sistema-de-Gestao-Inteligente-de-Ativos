@@ -27,7 +27,7 @@ class DispositivoMovel(models.Model):
         related_name='dispositivos',
         verbose_name="Usuário Responsável",
     )
-    uuid_dispositivo = models.CharField(max_length=100, unique=True)
+    uuid_dispositivo = models.CharField(max_length=100)
     modelo = models.CharField(max_length=100, blank=True)
     status_autorizacao = models.CharField(
         max_length=20,
@@ -36,6 +36,14 @@ class DispositivoMovel(models.Model):
     )
     data_registro = models.DateTimeField(default=timezone.now, verbose_name="Data de Registro")
     ultima_atuacao = models.DateTimeField(default=timezone.now, verbose_name="Última Atuação")
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=['empresa', 'usuario_responsavel', 'uuid_dispositivo'],
+                name='unique_dispositivo_por_usuario_empresa',
+            ),
+        ]
 
     @property
     def dias_sem_atuacao(self):

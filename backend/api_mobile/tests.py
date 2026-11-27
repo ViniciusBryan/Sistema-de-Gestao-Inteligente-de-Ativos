@@ -1,8 +1,9 @@
 import base64
 import json
+import tempfile
 import uuid
 from decimal import Decimal
-from django.test import Client, TestCase
+from django.test import Client, TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
 
@@ -266,3 +267,147 @@ class ApiMobileTests(TestCase):
         self.assertTrue(payload['bloquear_excesso_edicao'])
         self.assertEqual(payload['versao'], 1)
         self.assertTrue(payload['dentro_horario_permitido'])
+
+    def test_sincronizar_salva_foto_base64(self):
+        auth = _basic_auth('funcionario1', 'senha123')
+        agora = timezone.now().isoformat()
+        inv_id = str(uuid.uuid4())
+        item_id = str(uuid.uuid4())
+        # PNG 1x1 válido em base64
+        img_b64 = (
+            'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk'
+            '+A8AAQUBAScY42YAAAAASUVORK5CYII='
+        )
+
+        with tempfile.TemporaryDirectory() as media_dir, override_settings(MEDIA_ROOT=media_dir):
+            r_ok = self.client.post(
+                reverse('api_sincronizar'),
+                data=json.dumps({
+                    'id': inv_id,
+                    'data_hora_inicio': agora,
+                    'data_hora_fim': agora,
+                    'lat_long': '-23.55,-46.63',
+                    'itens': [
+                        {
+                            'id': item_id,
+                            'classe_codigo': 'gradil',
+                            'qtd_detectada_ia': 5,
+                            'qtd_confirmada_humano': 5,
+                            'justificativa': '',
+                            'foto_base64': f'data:image/jpeg;base64,{img_b64}',
+                        }
+                    ],
+                }),
+                content_type='application/json',
+                HTTP_AUTHORIZATION=auth,
+                HTTP_X_DEVICE_UUID='MOB-FOTO-1',
+            )
+            self.assertEqual(r_ok.status_code, 201)
+            item_obj = ItemInventario.objects.get(id=item_id)
+            self.assertTrue(bool(item_obj.foto))
+            nome_foto_inicial = item_obj.foto.name
+
+            # Re-sincronização sem foto_base64 preserva a imagem já salva
+            r_resync = self.client.post(
+                reverse('api_sincronizar'),
+                data=json.dumps({
+                    'id': inv_id,
+                    'data_hora_inicio': agora,
+                    'data_hora_fim': agora,
+                    'lat_long': '-23.55,-46.63',
+                    'itens': [
+                        {
+                            'id': item_id,
+                            'classe_codigo': 'gradil',
+                            'qtd_detectada_ia': 5,
+                            'qtd_confirmada_humano': 5,
+                            'justificativa': '',
+                        }
+                    ],
+                }),
+                content_type='application/json',
+                HTTP_AUTHORIZATION=auth,
+                HTTP_X_DEVICE_UUID='MOB-FOTO-1',
+            )
+            self.assertEqual(r_resync.status_code, 201)
+            item_obj.refresh_from_db()
+            self.assertEqual(item_obj.foto.name, nome_foto_inicial)
+
+            # Base64 inválido retorna 422
+            r_invalido = self.client.post(
+                reverse('api_sincronizar'),
+                data=json.dumps({
+                    'id': str(uuid.uuid4()),
+                    'data_hora_inicio': agora,
+                    'data_hora_fim': agora,
+                    'lat_long': '-23.55,-46.63',
+                    'itens': [
+                        {
+                            'classe_codigo': 'gradil',
+                            'qtd_detectada_ia': 5,
+                            'qtd_confirmada_humano': 5,
+                            'justificativa': '',
+                            'foto_base64': '@@@nao-eh-base64@@@',
+                        }
+                    ],
+                }),
+                content_type='application/json',
+                HTTP_AUTHORIZATION=auth,
+                HTTP_X_DEVICE_UUID='MOB-FOTO-1',
+            )
+            self.assertEqual(r_invalido.status_code, 422)
+
+    def test_mesmo_uuid_em_usuarios_diferentes_registra_ambos_dispositivos(self):
+        Usuario.objects.create_user(
+            username='terceirizado1',
+            email='terc1@api.com',
+            password='senha123',
+            empresa=self.empresa,
+            tipo_operador=TipoOperador.TERCEIRIZADO,
+        )
+        shared_uuid = 'SHARED-PHONE-01'
+
+        r_gestor = self.client.post(
+            reverse('api_login'),
+            data=json.dumps({'username': 'gestor.api', 'password': 'password123'}),
+            content_type='application/json',
+            HTTP_X_DEVICE_UUID=shared_uuid,
+            HTTP_X_DEVICE_MODEL='Moto G',
+        )
+        self.assertEqual(r_gestor.status_code, 200)
+
+        r_terc = self.client.post(
+            reverse('api_login'),
+            data=json.dumps({'username': 'terceirizado1', 'password': 'senha123'}),
+            content_type='application/json',
+            HTTP_X_DEVICE_UUID=shared_uuid,
+            HTTP_X_DEVICE_MODEL='Moto G',
+        )
+        self.assertEqual(r_terc.status_code, 200)
+
+        dispositivos_shared = DispositivoMovel.objects.filter(
+            empresa=self.empresa,
+            uuid_dispositivo=shared_uuid,
+        )
+        self.assertEqual(dispositivos_shared.count(), 2)
+
+        # Bloquear o aparelho do terceirizado não bloqueia o gestor no mesmo UUID
+        DispositivoMovel.objects.filter(
+            empresa=self.empresa,
+            usuario_responsavel__username='terceirizado1',
+            uuid_dispositivo=shared_uuid,
+        ).update(status_autorizacao=DispositivoMovel.StatusAutorizacao.BLOQUEADO)
+
+        r_terc_bloq = self.client.get(
+            reverse('api_regras'),
+            HTTP_AUTHORIZATION=_basic_auth('terceirizado1', 'senha123'),
+            HTTP_X_DEVICE_UUID=shared_uuid,
+        )
+        self.assertEqual(r_terc_bloq.status_code, 403)
+
+        r_gestor_ok = self.client.get(
+            reverse('api_regras'),
+            HTTP_AUTHORIZATION=_basic_auth('gestor.api', 'password123'),
+            HTTP_X_DEVICE_UUID=shared_uuid,
+        )
+        self.assertEqual(r_gestor_ok.status_code, 200)

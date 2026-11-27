@@ -3,6 +3,7 @@ from django.contrib.auth import login, logout
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.forms import AuthenticationForm
 from django.db import transaction
+from django.db.models.deletion import ProtectedError
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 from django.utils.http import url_has_allowed_host_and_scheme
@@ -153,8 +154,35 @@ def adicionar_usuario(request):
 def alternar_status_usuario(request, pk):
     if request.method == 'POST':
         user = get_object_or_404(Usuario, pk=pk, empresa=request.user.empresa)
-        user.status_ativo = not user.status_ativo
-        user.save(update_fields=['status_ativo'])
-        status_txt = "ativado" if user.status_ativo else "desativado"
+        if user.pk == request.user.pk:
+            messages.warning(request, "Você não pode desativar o próprio usuário logado.")
+            return redirect('usuario_list')
+
+        novo_status = not (user.status_ativo and user.is_active)
+        user.status_ativo = novo_status
+        user.is_active = novo_status
+        user.save(update_fields=['status_ativo', 'is_active'])
+        status_txt = "ativado" if novo_status else "desativado"
         messages.info(request, f"Usuário '{user.username}' {status_txt}.")
+    return redirect('usuario_list')
+
+
+@login_required
+def deletar_usuario(request, pk):
+    if request.method == 'POST':
+        user = get_object_or_404(Usuario, pk=pk, empresa=request.user.empresa)
+        if user.pk == request.user.pk:
+            messages.error(request, "Você não pode excluir o próprio usuário logado.")
+            return redirect('usuario_list')
+
+        username = user.username
+        try:
+            user.delete()
+            messages.success(request, f"Usuário '{username}' excluído com sucesso.")
+        except ProtectedError:
+            messages.error(
+                request,
+                f"Não é possível excluir '{username}' pois há inventários ou pareceres de auditoria vinculados. "
+                "Desative o usuário para bloquear o acesso.",
+            )
     return redirect('usuario_list')

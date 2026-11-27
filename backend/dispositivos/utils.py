@@ -19,10 +19,18 @@ def registrar_e_verificar_dispositivo(usuario, device_uuid, device_model=''):
     modelo_limpo = (device_model or '').strip() or 'Dispositivo Mobile/Web'
     agora = timezone.now()
 
-    dispositivo = DispositivoMovel.objects.filter(
-        empresa=empresa,
-        uuid_dispositivo=device_uuid,
-    ).first()
+    dispositivo = (
+        DispositivoMovel.objects.filter(
+            empresa=empresa,
+            usuario_responsavel=usuario,
+            uuid_dispositivo=device_uuid,
+        ).first()
+        or DispositivoMovel.objects.filter(
+            empresa=empresa,
+            usuario_responsavel__isnull=True,
+            uuid_dispositivo=device_uuid,
+        ).first()
+    )
 
     if dispositivo:
         campos_update = ['ultima_atuacao']
@@ -76,11 +84,7 @@ def identificar_dispositivo_web(request, usuario):
         return header_uuid, device_model
 
     if post_uuid:
-        conflito = DispositivoMovel.objects.filter(
-            uuid_dispositivo=post_uuid,
-        ).exclude(usuario_responsavel=usuario).exists()
-        device_uuid = f"{post_uuid}-{usuario.username.upper()}" if conflito else post_uuid
-        return device_uuid, device_model
+        return post_uuid, device_model
 
     ua = request.META.get('HTTP_USER_AGENT', 'web')
     ip = request.META.get('REMOTE_ADDR', '127.0.0.1')

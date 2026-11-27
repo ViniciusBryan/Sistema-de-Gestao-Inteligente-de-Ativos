@@ -1,4 +1,8 @@
+import base64
+import binascii
 from decimal import Decimal
+import uuid
+from django.core.files.base import ContentFile
 from django.db.models import Q
 from rest_framework import serializers
 
@@ -49,11 +53,26 @@ def serializar_regra_mobile(usuario, regra=None, fallback_padrao=False):
     return RegraOperacionalMobileSerializer(regra).data
 
 
+def _decodificar_foto_base64(foto_b64):
+    """Decodifica string base64 (com ou sem prefixo data URI) para ContentFile."""
+    texto = (foto_b64 or '').strip()
+    if not texto:
+        return None
+    if ',' in texto and texto.startswith('data:'):
+        texto = texto.split(',', 1)[1]
+    try:
+        decoded = base64.b64decode(texto, validate=True)
+    except (binascii.Error, ValueError):
+        raise serializers.ValidationError({'foto_base64': 'Imagem base64 inválida.'})
+    return ContentFile(decoded, name=f"contagem_{uuid.uuid4().hex[:12]}.jpg")
+
+
 class ItemInventarioSyncSerializer(serializers.ModelSerializer):
     """Serializer para itens de inventário enviados pelo aplicativo móvel."""
 
     classe_codigo = serializers.CharField(write_only=True)
     id = serializers.UUIDField(required=False)
+    foto_base64 = serializers.CharField(required=False, allow_blank=True, write_only=True)
 
     class Meta:
         model = ItemInventario
@@ -65,6 +84,7 @@ class ItemInventarioSyncSerializer(serializers.ModelSerializer):
             'justificativa',
             'detections_json',
             'foto',
+            'foto_base64',
         ]
 
 
@@ -116,6 +136,10 @@ class InventarioSyncSerializer(serializers.ModelSerializer):
             )
 
         item['classe_ativo_instancia'] = classe_ativo
+        foto_arquivo = _decodificar_foto_base64(item.get('foto_base64'))
+        if foto_arquivo:
+            item['foto_arquivo'] = foto_arquivo
+
         divergencia_pct = self._calcular_divergencia_pct(
             item.get('qtd_detectada_ia', 0),
             item.get('qtd_confirmada_humano', 0),

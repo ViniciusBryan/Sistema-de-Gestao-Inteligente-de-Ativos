@@ -48,3 +48,14 @@ def alternar_status_dispositivo(request, pk):
             f"Dispositivo '{disp.modelo or disp.uuid_dispositivo}' agora está {disp.status_autorizacao}.",
         )
     return redirect('dispositivo_list')
+
+
+@login_required
+def deletar_dispositivo(request, pk):
+    """Remove o vínculo de dispositivo da empresa."""
+    if request.method == 'POST':
+        disp = get_object_or_404(DispositivoMovel, pk=pk, empresa=request.user.empresa)
+        nome = disp.modelo or disp.uuid_dispositivo
+        disp.delete()
+        messages.success(request, f"Dispositivo '{nome}' excluído com sucesso.")
+    return redirect('dispositivo_list')
